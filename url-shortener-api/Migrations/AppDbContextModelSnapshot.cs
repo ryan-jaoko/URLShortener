@@ -17,7 +17,7 @@ namespace URLShortener.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -97,11 +97,15 @@ namespace URLShortener.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("email")
+                    b.Property<string>("Email")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("password")
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Username")
                         .IsRequired()
                         .HasColumnType("text");
 

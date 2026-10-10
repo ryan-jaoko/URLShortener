@@ -4,7 +4,7 @@ using Scalar.AspNetCore;
 using WorkOS;
 
 var builder = WebApplication.CreateBuilder(args);
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var connectionString = builder.Configuration["ConnectionStrings:DefaultConnection"];
 
 // Configure WorkOS client
 var workosApiKey = builder.Configuration["WorkOS:ApiKey"];
