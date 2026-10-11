@@ -1,10 +1,8 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using URLShortener.Entities;
 using URLShortener.Data;
 using Microsoft.EntityFrameworkCore;
 using URLShortener.utilities;
-using System.Net;
 using System.Text.RegularExpressions;
 
 
@@ -30,7 +28,7 @@ namespace URLShortener.Controllers
             {
                 return BadRequest("Bad URL");
             }
-            if (request.CustomCode != null && !await db.Urls.AnyAsync(c => c.ShortCode == request.CustomCode))
+            if (!string.IsNullOrEmpty(request.CustomCode) && !await db.Urls.AnyAsync(c => c.ShortCode == request.CustomCode))
             {
                 string pattern = @"^[a-zA-Z0-9_-]{3,32}$";
                 bool match = Regex.IsMatch(request.CustomCode, pattern);
@@ -59,7 +57,15 @@ namespace URLShortener.Controllers
                 await db.SaveChangesAsync();
             }
             Console.WriteLine($"original: {request.LongUrl}, shortCode given: {newUrl.ShortCode}");
-            return Ok(new { ShortUrl = $"http://localhost:5062/{newUrl.ShortCode}" });
+            return Created($"/api/url/{newUrl.ShortCode}", new
+            {
+                id = newUrl.Id,
+                originalUrl = newUrl.OriginalUrl,
+                shortCode = newUrl.ShortCode,
+                shortUrl = $"{Request.Host}/{newUrl.ShortCode}",
+                createdAt = newUrl.CreatedAt,
+                clickCount = newUrl.ClickCount
+            });
         }
 
         [HttpGet("stats/{shortCode}")]
@@ -67,7 +73,7 @@ namespace URLShortener.Controllers
         public async Task<IActionResult> Statistics([FromRoute] string shortCode)
         {
             var input = Utilities.Decode(shortCode);
-            Clicks[] stats = await db.Clicks.Where(u => u.UrlId == input).ToArrayAsync();
+            var stats = await db.Clicks.Where(u => u.UrlId == input).ToListAsync();
             if (stats == null)
             {
                 return Ok("No stats yet for this route");
@@ -116,7 +122,7 @@ namespace URLShortener.Controllers
             };
             await db.Clicks.AddAsync(analytics);
             await db.SaveChangesAsync();
-            return Ok(new { OriginalUrl = record.OriginalUrl });
+            return Redirect(record.OriginalUrl);
         }
 
 
