@@ -48,15 +48,16 @@ namespace URLShortener.Controllers
             {
                 OriginalUrl = request.LongUrl,
 
-                ShortCode = "temp"
+                ShortCode = request.CustomCode ?? "temp"
             };
 
             db.Urls.Add(newUrl);
             await db.SaveChangesAsync();
-
-            newUrl.ShortCode = request.CustomCode ?? Utilities.Encode(newUrl.Id);
-
-            await db.SaveChangesAsync();
+            if (request.CustomCode == null)
+            {
+                newUrl.ShortCode = Utilities.Encode(newUrl.Id);
+                await db.SaveChangesAsync();
+            }
             Console.WriteLine($"original: {request.LongUrl}, shortCode given: {newUrl.ShortCode}");
             return Ok(new { ShortUrl = $"http://localhost:5062/{newUrl.ShortCode}" });
         }
