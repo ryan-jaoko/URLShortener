@@ -4,16 +4,21 @@ using URLShortener.Entities;
 using URLShortener.Data;
 using Microsoft.EntityFrameworkCore;
 using URLShortener.utilities;
+using System.Net;
+using System.Text.RegularExpressions;
+
 
 namespace URLShortener.Controllers
 {
+
     [Route("api/[controller]")]
     [ApiController]
     public class Url(AppDbContext db) : ControllerBase
     {
-        public record UrlRequest(string LongUrl, Guid? UserId);
+
+        public record ShortenRequest(string LongUrl, string? CustomCode);
         [HttpPost("shorten")]
-        public async Task<IActionResult> Shorten(UrlRequest request)
+        public async Task<IActionResult> Shorten(ShortenRequest request)
         {
             if (string.IsNullOrEmpty(request.LongUrl))
             {
@@ -25,37 +30,40 @@ namespace URLShortener.Controllers
             {
                 return BadRequest("Bad URL");
             }
-            //    if (!await db.Users.AnyAsync(c => c.Id == request.UserId))
-            //    {
-            //        return Problem();
-            //    }
+            if (request.CustomCode != null && !await db.Urls.AnyAsync(c => c.ShortCode == request.CustomCode))
+            {
+                string pattern = @"^[a-zA-Z0-9_-]{3,32}$";
+                bool match = Regex.IsMatch(request.CustomCode, pattern);
+                if (match == false)
+                {
+                    return Problem("Custom Code not match");
+                }
+            }
+            else
+            {
+                return Conflict(new { message = $"An existing record with the id '{request.CustomCode}' was already found." });
+            }
+
             var newUrl = new Urls
             {
                 OriginalUrl = request.LongUrl,
 
-                ShortCode = "temp" // Placeholder
+                ShortCode = "temp"
             };
 
             db.Urls.Add(newUrl);
             await db.SaveChangesAsync();
 
-            newUrl.ShortCode = Utilities.Encode(newUrl.Id);
+            newUrl.ShortCode = request.CustomCode ?? Utilities.Encode(newUrl.Id);
 
             await db.SaveChangesAsync();
             Console.WriteLine($"original: {request.LongUrl}, shortCode given: {newUrl.ShortCode}");
             return Ok(new { ShortUrl = $"http://localhost:5062/{newUrl.ShortCode}" });
         }
 
-        [HttpPost("custom")]
-        public IActionResult Delete()
-        {
-            return Ok(new { Message = "Server changes under way" });
-        }
-
-
         [HttpGet("stats/{shortCode}")]
 
-        public async Task<IActionResult> statistics([FromRoute] string shortCode, AppDbContext db)
+        public async Task<IActionResult> Statistics([FromRoute] string shortCode)
         {
             var input = Utilities.Decode(shortCode);
             Clicks[] stats = await db.Clicks.Where(u => u.UrlId == input).ToArrayAsync();
@@ -100,7 +108,7 @@ namespace URLShortener.Controllers
             Clicks analytics = new Clicks
             {
                 UrlId = record.Id,
-                referrer = referrer,
+                Referrer = referrer,
                 UserAgent = userAgent,
                 IpAddress = clientIp,
                 Urls = record
@@ -112,7 +120,7 @@ namespace URLShortener.Controllers
 
 
         [HttpDelete("{shortCode}")]
-        public async Task<IActionResult> delete(string shortCode, AppDbContext db)
+        public async Task<IActionResult> Delete(string shortCode, AppDbContext db)
         {
             var input = await db.Urls.Where(c => c.ShortCode == shortCode).SingleOrDefaultAsync();
             if (input == null)
