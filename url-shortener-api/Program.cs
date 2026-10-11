@@ -35,7 +35,19 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
+var corsOrigin = builder.Configuration["Cors:Origin"] ?? "http://localhost:5173";
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Web", policy =>
+        policy.WithOrigins(corsOrigin)
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
+
 var app = builder.Build();
+app.UseCors("Web");
+
 
 // Enable session middleware
 app.UseSession();
@@ -95,7 +107,7 @@ app.MapGet("/auth/callback", async (HttpContext context, WorkOSClient client) =>
 app.MapGet("/auth/logout", (HttpContext context) =>
 {
     context.Session.Clear();
-    return Results.Redirect("/");
+    return Results.Redirect(corsOrigin);
 });
 
 app.MapGet("/auth/me", (HttpContext context) =>
@@ -114,6 +126,8 @@ app.MapGet("/auth/me", (HttpContext context) =>
         name = context.Session.GetString("user_name")
     });
 });
+
+
 
 app.MapControllers();
 app.Run();
