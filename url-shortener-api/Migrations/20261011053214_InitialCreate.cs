@@ -20,7 +20,7 @@ namespace URLShortener.Migrations
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityAlwaysColumn),
                     OriginalUrl = table.Column<string>(type: "text", nullable: false),
                     ShortCode = table.Column<string>(type: "text", nullable: false),
-                    CreatedAt = table.Column<string>(type: "text", nullable: false),
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     ClickCount = table.Column<int>(type: "integer", nullable: false),
                     UserId = table.Column<Guid>(type: "uuid", nullable: false)
                 },
@@ -34,8 +34,9 @@ namespace URLShortener.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    email = table.Column<string>(type: "text", nullable: false),
-                    password = table.Column<string>(type: "text", nullable: false)
+                    Username = table.Column<string>(type: "text", nullable: false),
+                    Email = table.Column<string>(type: "text", nullable: false),
+                    PasswordHash = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -49,11 +50,11 @@ namespace URLShortener.Migrations
                     Id = table.Column<int>(type: "integer", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityAlwaysColumn),
                     UrlId = table.Column<int>(type: "integer", nullable: false),
-                    Timestamp = table.Column<string>(type: "text", nullable: false),
+                    Timestamp = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     IpAddress = table.Column<string>(type: "text", nullable: true),
                     UserAgent = table.Column<string>(type: "text", nullable: true),
-                    referrer = table.Column<string>(type: "text", nullable: false),
-                    language = table.Column<string>(type: "text", nullable: true)
+                    Referrer = table.Column<string>(type: "text", nullable: false),
+                    Language = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {

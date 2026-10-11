@@ -28,6 +28,14 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Clicks>()
             .Property(c => c.Id)
             .UseIdentityAlwaysColumn();
+
+        modelBuilder.Entity<Urls>()
+            .Property(e => e.CreatedAt)
+            .HasColumnType("timestamp with time zone");
+
+        modelBuilder.Entity<Clicks>()
+        .Property(e => e.Timestamp)
+        .HasColumnType("timestamp with time zone");
     }
 
 }
@@ -37,13 +45,13 @@ public class Urls
     public int Id { get; set; }
     public required string OriginalUrl { get; set; }
     public required string ShortCode { get; set; }
-    public string CreatedAt { get; set; } = DateTimeOffset.UtcNow.ToString();
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public int ClickCount { get; set; }
 
     public ICollection<Clicks> Clicks { get; set; } = new List<Clicks>();
 
 
-    // To be implemented when implementing USer accounts
+    // To be implemented when implementing User accounts
     public Guid UserId { get; set; }
 }
 
@@ -54,17 +62,17 @@ public class Clicks
     public required int UrlId { get; set; }
     [ForeignKey(nameof(UrlId))]
     public Urls? Urls { get; set; }
-    public string Timestamp { get; set; } = DateTimeOffset.UtcNow.ToString();
+    public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
     public string? IpAddress { get; set; }
     public string? UserAgent { get; set; }
-    public required string referrer { get; set; }
-    public string? language { get; set; }
+    public required string Referrer { get; set; } = "";
+    public string? Language { get; set; }
 }
 
 // Rolling out auth
 public class Users
 {
-    public Guid Id { get; set; }
+    public Guid Id { get; set; } = Guid.CreateVersion7();
     public required string Username { get; set; }
     public required string Email { get; set; }
     public required string PasswordHash { get; set; }

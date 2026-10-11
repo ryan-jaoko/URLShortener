@@ -33,21 +33,20 @@ namespace URLShortener.Migrations
                     b.Property<string>("IpAddress")
                         .HasColumnType("text");
 
-                    b.Property<string>("Timestamp")
+                    b.Property<string>("Language")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Referrer")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("UrlId")
                         .HasColumnType("integer");
 
                     b.Property<string>("UserAgent")
-                        .HasColumnType("text");
-
-                    b.Property<string>("language")
-                        .HasColumnType("text");
-
-                    b.Property<string>("referrer")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
@@ -68,9 +67,8 @@ namespace URLShortener.Migrations
                     b.Property<int>("ClickCount")
                         .HasColumnType("integer");
 
-                    b.Property<string>("CreatedAt")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("OriginalUrl")
                         .IsRequired()
