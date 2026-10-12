@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +12,6 @@ namespace URLShortener.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-
     public class Auth : ControllerBase
     {
         private static readonly User user = new();
@@ -21,8 +21,9 @@ namespace URLShortener.Controllers
             var hashedPassword = new PasswordHasher<User>()
             .HashPassword(user, request.Password);
             user.Username = request.Username;
+            user.Email = request.Email;
             user.PasswordHash = hashedPassword;
-            return Ok(user);
+            return Ok();
         }
     }
 }
