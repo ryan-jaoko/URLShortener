@@ -2,6 +2,11 @@ using URLShortener.Data;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using WorkOS;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
+using System.Text.Encodings.Web;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration["ConnectionStrings:DefaultConnection"];
@@ -35,6 +40,26 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
+
+builder.Services.AddAuthentication().AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+    };
+});
+
+
+builder.Services.AddAuthorization();
+
+
+
 var corsOrigin = builder.Configuration["Cors:Origin"] ?? "http://localhost:5173";
 
 builder.Services.AddCors(options =>
@@ -46,6 +71,7 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
 app.UseCors("Web");
 
 
@@ -128,6 +154,7 @@ app.MapGet("/auth/me", (HttpContext context) =>
 });
 
 
-
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 app.Run();
