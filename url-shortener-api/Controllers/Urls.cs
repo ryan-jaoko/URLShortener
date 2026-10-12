@@ -28,18 +28,25 @@ namespace URLShortener.Controllers
             {
                 return BadRequest("Bad URL");
             }
-            if (!string.IsNullOrEmpty(request.CustomCode) && !await db.Urls.AnyAsync(c => c.ShortCode == request.CustomCode))
+            if (!string.IsNullOrWhiteSpace(request.CustomCode) && !await db.Urls.AnyAsync(c => c.ShortCode == request.CustomCode))
             {
                 string pattern = @"^[a-zA-Z0-9_-]{3,32}$";
                 bool match = Regex.IsMatch(request.CustomCode, pattern);
                 if (match == false)
                 {
-                    return Problem("Custom Code not match");
+                    return Problem("Invalid custom code format");
                 }
             }
             else
             {
-                return Conflict(new { message = $"An existing record with the id '{request.CustomCode}' was already found." });
+                if(string.IsNullOrEmpty(request.CustomCode) || request.CustomCode == "" )
+                {
+                    //nothing
+                }
+                else
+                {
+                    return Conflict(new { message = $"An existing record with the id '{request.CustomCode}' was already found." });
+                }
             }
 
             var newUrl = new Urls
@@ -73,7 +80,7 @@ namespace URLShortener.Controllers
         public async Task<IActionResult> Statistics([FromRoute] string shortCode)
         {
             var input = Utilities.Decode(shortCode);
-            var stats = await db.Clicks.Where(u => u.UrlId == input).ToListAsync();
+            var stats = await db.Clicks.Where(u => u.UrlId == input).ToArrayAsync();
             if (stats == null)
             {
                 return Ok("No stats yet for this route");
@@ -82,48 +89,12 @@ namespace URLShortener.Controllers
             return Ok(stats);
         }
 
-        [HttpGet("{shortCode}")]
-        public async Task<IActionResult> Get([FromRoute] string shortCode)
-        {
-            Console.WriteLine($"Parameter reached: {shortCode}");
-            // Validate
+        // Comment Unsuded Code.
+        // [HttpGet("")]
+        // public async Task<IActionResult> Get([FromRoute] string shortCode)
+        // {
 
-            if (string.IsNullOrWhiteSpace(shortCode))
-            {
-                return BadRequest("bad Request.");
-            }
-
-            Urls record;
-            try
-            {
-
-                record = await db.Urls
-                .Where(u => u.ShortCode == shortCode).SingleAsync();
-            }
-            catch
-            {
-                return Ok(new { ShortCode = $"{shortCode}: Not found" });
-            }
-            record.ClickCount++;
-
-
-            // Get click analytics
-            string clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
-            string userAgent = HttpContext.Request.Headers.UserAgent.ToString();
-            string referrer = HttpContext.Request.Headers.Referer.ToString();
-            string language = HttpContext.Request.Headers.AcceptLanguage.ToString();
-            Clicks analytics = new Clicks
-            {
-                UrlId = record.Id,
-                Referrer = referrer,
-                UserAgent = userAgent,
-                IpAddress = clientIp,
-                Urls = record
-            };
-            await db.Clicks.AddAsync(analytics);
-            await db.SaveChangesAsync();
-            return Redirect(record.OriginalUrl);
-        }
+        // }
 
 
         [HttpDelete("{shortCode}")]

@@ -84,7 +84,45 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
-app.MapGet("/", () => Results.Ok(new { id = 2, Name = "jaksus", Agony = "pain" }));
+app.MapGet("/{shortCode}", async (string shortCode, AppDbContext db, HttpContext HttpContext) => {
+    Console.WriteLine($"Parameter reached: {shortCode}");
+    // Validate
+
+    if (string.IsNullOrWhiteSpace(shortCode))
+    {
+        return Results.BadRequest("bad Request.");
+    }
+
+    Urls record;
+    try
+    {
+        record = await db.Urls
+        .Where(u => u.ShortCode == shortCode).SingleAsync();
+    }
+    catch
+    {
+        return Results.Ok(new { ShortCode = $"{shortCode}: Not found" });
+    }
+    record.ClickCount++;
+
+
+    // Get click analytics
+    string clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
+    string userAgent = HttpContext.Request.Headers.UserAgent.ToString();
+    string referrer = HttpContext.Request.Headers.Referer.ToString();
+    string language = HttpContext.Request.Headers.AcceptLanguage.ToString();
+    Clicks analytics = new Clicks
+    {
+        UrlId = record.Id,
+        Referrer = referrer,
+        UserAgent = userAgent,
+        IpAddress = clientIp,
+        Urls = record
+    };
+    await db.Clicks.AddAsync(analytics);
+    await db.SaveChangesAsync();
+    return Results.Redirect(record.OriginalUrl);
+});
 
 // Auth endpoints
 app.MapGet("/auth/login", (WorkOSClient client) =>
