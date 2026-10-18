@@ -1,4 +1,5 @@
 import axios, { AxiosError, type AxiosInstance } from "axios";
+import { useRateLimitStore } from "../stores/rateLimit";
 import type { ApiErrorBody } from "./types";
 
 export const API_BASE_URL =
@@ -37,6 +38,54 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const url = error.config?.url ?? "";
+
+      // Handle Rate Limiting (429)
+      if (status === 429) {
+        let action = "general";
+        if (url.includes("/api/auth/login")) {
+          action = "login";
+        } else if (url.includes("/api/auth/register")) {
+          action = "register";
+        } else if (url.includes("/api/url/shorten")) {
+          action = "shorten";
+        }
+
+        const data = error.response?.data as { retryAfter?: number; message?: string } | undefined;
+        const retryHeader = error.response?.headers?.["retry-after"];
+        const retryAfterSeconds =
+          typeof data?.retryAfter === "number"
+            ? data.retryAfter
+            : retryHeader
+            ? parseInt(String(retryHeader), 10)
+            : 60;
+
+        const message =
+          data?.message ||
+          `Too many requests. You have been temporarily blocked for ${retryAfterSeconds} seconds.`;
+
+        try {
+          const rateLimitStore = useRateLimitStore();
+          rateLimitStore.triggerBlock(action, retryAfterSeconds, message);
+        } catch {
+          // In case store not ready
+        }
+      }
+
+      // Handle Unauthorized (401) on authenticated requests
+      if (status === 401 && !url.includes("/api/auth/login")) {
+        setStoredToken(null);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const axiosError = error as AxiosError<ApiErrorBody | string>;
@@ -57,6 +106,10 @@ export function getErrorMessage(error: unknown): string {
 
     if (axiosError.code === "ERR_NETWORK") {
       return `Cannot reach the API at ${API_BASE_URL}. Is the backend running?`;
+    }
+
+    if (axiosError.response?.status === 429) {
+      return "Rate limit exceeded. You are temporarily blocked. Please wait.";
     }
 
     if (axiosError.response?.status) {

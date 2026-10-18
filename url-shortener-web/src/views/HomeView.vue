@@ -26,7 +26,7 @@ onMounted(() => {
       <div class="rounded-3xl border border-line bg-pine p-5 text-card">
         <p class="text-xs uppercase tracking-[0.2em] text-card/70">Overview</p>
         <p class="mt-3 font-display text-4xl">{{ links.totalClicks }}</p>
-        <p class="mt-1 text-sm text-card/80">clicks across remembered links</p>
+        <p class="mt-1 text-sm text-card/80">clicks across your links</p>
       </div>
       <LinkList />
     </aside>

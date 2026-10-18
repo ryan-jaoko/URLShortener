@@ -4,39 +4,48 @@ import { getErrorMessage, PUBLIC_SHORT_BASE_URL } from "../api/client";
 import * as urlsApi from "../api/urls";
 import type { LinkStats, ShortenRequest, ShortLink } from "../api/types";
 
-const RECENT_KEY = "shortpath.recent";
+const PENDING_KEY = "shortpath.pending_shorten";
 
-function readRecent(): ShortLink[] {
+function readPending(): ShortenRequest | null {
   try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    return raw ? (JSON.parse(raw) as ShortLink[]) : [];
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    return raw ? (JSON.parse(raw) as ShortenRequest) : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
-function writeRecent(links: ShortLink[]) {
-  localStorage.setItem(RECENT_KEY, JSON.stringify(links.slice(0, 20)));
-}
-
 export const useLinksStore = defineStore("links", () => {
-  const links = ref<ShortLink[]>(readRecent());
+  const links = ref<ShortLink[]>([]);
   const lastCreated = ref<ShortLink | null>(null);
   const selectedStats = ref<LinkStats | null>(null);
   const selectedCode = ref("");
   const loading = ref(false);
   const statsLoading = ref(false);
   const error = ref("");
+  const pendingShorten = ref<ShortenRequest | null>(readPending());
+
+  function setPendingShorten(payload: ShortenRequest) {
+    pendingShorten.value = payload;
+    try {
+      sessionStorage.setItem(PENDING_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore
+    }
+  }
+
+  function clearPendingShorten() {
+    pendingShorten.value = null;
+    try {
+      sessionStorage.removeItem(PENDING_KEY);
+    } catch {
+      // Ignore
+    }
+  }
 
   const totalClicks = computed(() =>
     links.value.reduce((sum, link) => sum + (link.clickCount ?? 0), 0),
   );
-
-  function upsert(link: ShortLink) {
-    const next = [link, ...links.value.filter((item) => item.shortCode !== link.shortCode)];
-    links.value = next;
-    writeRecent(next);
-  }
 
   async function shorten(payload: ShortenRequest) {
     loading.value = true;
@@ -47,7 +56,11 @@ export const useLinksStore = defineStore("links", () => {
         created.shortUrl = `${PUBLIC_SHORT_BASE_URL.replace(/\/$/, "")}/${created.shortCode}`;
       }
       lastCreated.value = created;
-      upsert(created);
+      if (pendingShorten.value?.longUrl === payload.longUrl) {
+        clearPendingShorten();
+      }
+      // Refresh user's links directly from the database
+      await loadMine();
       return created;
     } catch (err) {
       error.value = getErrorMessage(err);
@@ -63,7 +76,6 @@ export const useLinksStore = defineStore("links", () => {
     try {
       const mine = await urlsApi.listMyUrls();
       links.value = mine;
-      writeRecent(mine);
     } catch (err) {
       error.value = getErrorMessage(err);
     } finally {
@@ -90,7 +102,6 @@ export const useLinksStore = defineStore("links", () => {
     try {
       await urlsApi.deleteUrl(shortCode);
       links.value = links.value.filter((link) => link.shortCode !== shortCode);
-      writeRecent(links.value);
       if (selectedCode.value === shortCode) {
         selectedStats.value = null;
         selectedCode.value = "";
@@ -109,7 +120,10 @@ export const useLinksStore = defineStore("links", () => {
     loading,
     statsLoading,
     error,
+    pendingShorten,
     totalClicks,
+    setPendingShorten,
+    clearPendingShorten,
     shorten,
     loadMine,
     loadStats,

@@ -2,8 +2,12 @@
 import { computed, ref } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
+import { useLinksStore } from "../stores/links";
+import { useRateLimitStore } from "../stores/rateLimit";
 
 const auth = useAuthStore();
+const links = useLinksStore();
+const rateLimit = useRateLimitStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -13,14 +17,30 @@ const email = ref("");
 const password = ref("");
 const localError = ref("");
 
+const isBlocked = computed(() => rateLimit.isBlocked(mode.value));
+const remainingSeconds = computed(() => rateLimit.getRemainingSeconds(mode.value));
+const hasPending = computed(() => Boolean(links.pendingShorten?.longUrl));
+
 async function onSubmit() {
   localError.value = "";
+
+  if (isBlocked.value) {
+    localError.value = `Rate limit block active. Please wait ${remainingSeconds.value} seconds.`;
+    return;
+  }
+
   if (!email.value.trim() || !password.value) {
     localError.value = "Email and password are required.";
     return;
   }
   if (mode.value === "register" && !username.value.trim()) {
     localError.value = "Pick a username.";
+    return;
+  }
+
+  // Client-side rate limiting / block check: 5 attempts per 30s, block for 60s
+  if (!rateLimit.recordAttempt(mode.value, 5, 30000, 60)) {
+    localError.value = `Too many attempts. You are temporarily blocked for ${rateLimit.getRemainingSeconds(mode.value)}s.`;
     return;
   }
 
@@ -37,6 +57,19 @@ async function onSubmit() {
         password: password.value,
       });
     }
+
+    // Automatically shorten the remembered link immediately after authentication
+    if (links.pendingShorten) {
+      const pending = { ...links.pendingShorten };
+      try {
+        await links.shorten(pending);
+      } catch {
+        // Store holds the error
+      } finally {
+        links.clearPendingShorten();
+      }
+    }
+
     await router.push("/");
   } catch {
     // Store holds the API error.
@@ -54,8 +87,32 @@ async function onSubmit() {
         {{ mode === "register" ? "Sign up" : "Log in" }}
       </h1>
       <p class="mt-2 text-muted">
-        Auth is wired through Pinia so the backend can drop in JWT login later.
+        JWT authentication with secure token storage and session management.
       </p>
+
+      <!-- Prompt for pending link to shorten -->
+      <div
+        v-if="hasPending"
+        class="mt-5 rounded-2xl border border-pine/30 bg-pine/10 p-4 text-sm text-ink"
+      >
+        <p class="font-medium text-pine">Almost there! Complete {{ mode === 'register' ? 'registration' : 'login' }} to shorten:</p>
+        <p class="mt-1 font-mono text-xs text-muted truncate">{{ links.pendingShorten?.longUrl }}</p>
+      </div>
+
+      <!-- Rate limit block warning banner with live countdown -->
+      <div
+        v-if="isBlocked"
+        class="mt-5 flex items-center gap-3 rounded-2xl border border-ember/40 bg-ember/10 p-4 text-sm text-ember-dark"
+      >
+        <span class="text-2xl" aria-hidden="true">⏳</span>
+        <div class="flex-1">
+          <p class="font-semibold">Too many attempts (Blocked)</p>
+          <p class="mt-0.5 text-xs text-ink/80">
+            For security, further attempts are temporarily paused. Try again in
+            <span class="font-bold text-ember">{{ remainingSeconds }}s</span>.
+          </p>
+        </div>
+      </div>
 
       <form class="mt-6 space-y-4" @submit.prevent="onSubmit">
         <label v-if="mode === 'register'" class="block">
@@ -64,7 +121,8 @@ async function onSubmit() {
             v-model="username"
             type="text"
             autocomplete="username"
-            class="w-full rounded-2xl border border-line bg-paper px-4 py-3 outline-none ring-ember/30 focus:ring-2"
+            :disabled="isBlocked"
+            class="w-full rounded-2xl border border-line bg-paper px-4 py-3 outline-none ring-ember/30 focus:ring-2 disabled:opacity-60"
           />
         </label>
         <label class="block">
@@ -73,7 +131,8 @@ async function onSubmit() {
             v-model="email"
             type="email"
             autocomplete="email"
-            class="w-full rounded-2xl border border-line bg-paper px-4 py-3 outline-none ring-ember/30 focus:ring-2"
+            :disabled="isBlocked"
+            class="w-full rounded-2xl border border-line bg-paper px-4 py-3 outline-none ring-ember/30 focus:ring-2 disabled:opacity-60"
           />
         </label>
         <label class="block">
@@ -81,8 +140,9 @@ async function onSubmit() {
           <input
             v-model="password"
             type="password"
+            :disabled="isBlocked"
             :autocomplete="mode === 'register' ? 'new-password' : 'current-password'"
-            class="w-full rounded-2xl border border-line bg-paper px-4 py-3 outline-none ring-ember/30 focus:ring-2"
+            class="w-full rounded-2xl border border-line bg-paper px-4 py-3 outline-none ring-ember/30 focus:ring-2 disabled:opacity-60"
           />
         </label>
 
@@ -92,10 +152,18 @@ async function onSubmit() {
 
         <button
           type="submit"
-          class="w-full rounded-full bg-pine py-3 text-card hover:bg-moss disabled:opacity-60"
-          :disabled="auth.loading"
+          class="w-full rounded-full bg-pine py-3 text-card hover:bg-moss disabled:opacity-60 transition"
+          :disabled="auth.loading || isBlocked"
         >
-          {{ auth.loading ? "Working…" : mode === "register" ? "Create account" : "Log in" }}
+          <template v-if="isBlocked">
+            Temporarily blocked ({{ remainingSeconds }}s)
+          </template>
+          <template v-else-if="auth.loading">
+            Working…
+          </template>
+          <template v-else>
+            {{ mode === "register" ? "Create account" : "Log in" }}
+          </template>
         </button>
       </form>
 
