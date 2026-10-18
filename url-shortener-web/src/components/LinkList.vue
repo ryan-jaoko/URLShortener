@@ -29,7 +29,7 @@ async function onDelete(shortCode: string) {
       <div>
         <h3 class="font-display text-2xl">Links</h3>
         <p class="text-sm text-muted">
-          {{ auth.isAuthenticated ? "Your saved short links." : "Recent links from this browser." }}
+          Your saved short links.
         </p>
       </div>
       <p class="text-sm text-muted">{{ links.links.length }} saved</p>
