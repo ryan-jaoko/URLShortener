@@ -1,64 +1,49 @@
-using URLShortener.Data;
-using Microsoft.EntityFrameworkCore;
-using Scalar.AspNetCore;
-using WorkOS;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.Tokens;
-using System.Text.Encodings.Web;
 using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Scalar.AspNetCore;
+using URLShortener.Data;
+using URLShortener.Middleware;
+using URLShortener.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration["ConnectionStrings:DefaultConnection"];
 
-// Configure WorkOS client
-var workosApiKey = builder.Configuration["WorkOS:ApiKey"];
-var workosClientId = builder.Configuration["WorkOS:ClientId"];
-var workosRedirectUri = builder.Configuration["WorkOS:RedirectUri"]
-    ?? throw new InvalidOperationException("WorkOS:RedirectUri configuration is required");
-
-var workosClient = new WorkOSClient(new WorkOSOptions
-{
-    ApiKey = workosApiKey,
-    ClientId = workosClientId
-});
-WorkOSConfiguration.WorkOSClient = workosClient;
-
-builder.Services.AddSingleton(workosClient);
-
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
+
+builder.Services.AddSingleton<IRateLimiterService, RateLimiterService>();
+builder.Services.AddScoped<ITokenService, TokenService>();
+
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-// Add session support for authentication
-builder.Services.AddDistributedMemoryCache();
-builder.Services.AddSession(options =>
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("Jwt:Key configuration is required");
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "Shortpath";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "ShortpathWeb";
+
+builder.Services.AddAuthentication(options =>
 {
-    options.IdleTimeout = TimeSpan.FromMinutes(30);
-    options.Cookie.HttpOnly = true;
-    options.Cookie.IsEssential = true;
-});
-
-
-builder.Services.AddAuthentication().AddJwtBearer(options =>
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
 {
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
         ValidateAudience = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        ClockSkew = TimeSpan.Zero
     };
 });
 
-
 builder.Services.AddAuthorization();
-
-
 
 var corsOrigin = builder.Configuration["Cors:Origin"] ?? "http://localhost:5173";
 
@@ -67,16 +52,16 @@ builder.Services.AddCors(options =>
     options.AddPolicy("Web", policy =>
         policy.WithOrigins(corsOrigin)
               .AllowAnyHeader()
-              .AllowAnyMethod());
+              .AllowAnyMethod()
+              .WithExposedHeaders("Retry-After", "X-RateLimit-Blocked", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"));
 });
 
 var app = builder.Build();
 
 app.UseCors("Web");
-
-
-// Enable session middleware
-app.UseSession();
+app.UseMiddleware<RateLimitingMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {
@@ -84,115 +69,46 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
-app.MapGet("/{shortCode}", async (string shortCode, AppDbContext db, HttpContext HttpContext) => {
-    Console.WriteLine($"Parameter reached: {shortCode}");
-    // Validate
+app.MapGet("/", () => Results.Redirect(corsOrigin));
 
+app.MapGet("/{shortCode}", async (string shortCode, AppDbContext db, HttpContext httpContext) =>
+{
     if (string.IsNullOrWhiteSpace(shortCode))
     {
-        return Results.BadRequest("bad Request.");
+        return Results.BadRequest(new { message = "Invalid short code." });
     }
 
-    Urls record;
-    try
+    var record = await db.Urls.FirstOrDefaultAsync(u => u.ShortCode == shortCode);
+    if (record == null)
     {
-        record = await db.Urls
-        .Where(u => u.ShortCode == shortCode).SingleAsync();
+        return Results.NotFound(new { message = $"Short link '{shortCode}' not found." });
     }
-    catch
-    {
-        return Results.Ok(new { ShortCode = $"{shortCode}: Not found" });
-    }
+
     record.ClickCount++;
 
+    var clientIp = httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var fwd) && !string.IsNullOrWhiteSpace(fwd)
+        ? fwd.ToString().Split(',')[0].Trim()
+        : httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-    // Get click analytics
-    string clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "Unknown";
-    string userAgent = HttpContext.Request.Headers.UserAgent.ToString();
-    string referrer = HttpContext.Request.Headers.Referer.ToString();
-    string language = HttpContext.Request.Headers.AcceptLanguage.ToString();
-    Clicks analytics = new Clicks
+    var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+    var referrer = httpContext.Request.Headers.Referer.ToString();
+    var language = httpContext.Request.Headers.AcceptLanguage.ToString();
+
+    var click = new Clicks
     {
         UrlId = record.Id,
         Referrer = referrer,
         UserAgent = userAgent,
         IpAddress = clientIp,
+        Language = language,
         Urls = record
     };
-    await db.Clicks.AddAsync(analytics);
+
+    await db.Clicks.AddAsync(click);
     await db.SaveChangesAsync();
+
     return Results.Redirect(record.OriginalUrl);
 });
 
-// Auth endpoints
-app.MapGet("/auth/login", (WorkOSClient client) =>
-{
-    var authorizationUrl = client.UserManagement.GetAuthorizationUrl(
-        new UserManagementGetAuthorizationUrlOptions
-        {
-            RedirectUri = workosRedirectUri,
-            Provider = UserManagementAuthenticationProvider.Authkit
-        });
-
-    return Results.Redirect(authorizationUrl);
-});
-
-app.MapGet("/auth/callback", async (HttpContext context, WorkOSClient client) =>
-{
-    var code = context.Request.Query["code"].ToString();
-
-    if (string.IsNullOrEmpty(code))
-    {
-        return Results.BadRequest("Authorization code not provided");
-    }
-
-    try
-    {
-        var authResponse = await client.UserManagement.AuthenticateWithCodeAsync(
-            new AuthenticateWithCodeOptions
-            {
-                Code = code
-            });
-
-        // Store user info in session
-        context.Session.SetString("user_id", authResponse.User.Id ?? "");
-        context.Session.SetString("user_email", authResponse.User.Email ?? "");
-        context.Session.SetString("user_name",
-            $"{authResponse.User.FirstName} {authResponse.User.LastName}".Trim());
-
-        return Results.Redirect("/");
-    }
-    catch (Exception ex)
-    {
-        return Results.Problem($"Authentication failed: {ex.Message}");
-    }
-});
-
-app.MapGet("/auth/logout", (HttpContext context) =>
-{
-    context.Session.Clear();
-    return Results.Redirect(corsOrigin);
-});
-
-app.MapGet("/auth/me", (HttpContext context) =>
-{
-    var userId = context.Session.GetString("user_id");
-
-    if (string.IsNullOrEmpty(userId))
-    {
-        return Results.Unauthorized();
-    }
-
-    return Results.Ok(new
-    {
-        id = userId,
-        email = context.Session.GetString("user_email"),
-        name = context.Session.GetString("user_name")
-    });
-});
-
-
-app.UseAuthentication();
-app.UseAuthorization();
 app.MapControllers();
 app.Run();

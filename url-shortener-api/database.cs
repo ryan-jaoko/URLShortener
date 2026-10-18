@@ -52,7 +52,7 @@ public class Urls
 
 
     // To be implemented when implementing User accounts
-    public Guid UserId { get; set; }
+    public Guid? UserId { get; set; }
 }
 
 
