@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { useAuthStore } from "../stores/auth";
 import { useLinksStore } from "../stores/links";
 
-const auth = useAuthStore();
 const links = useLinksStore();
 
 function hostOf(url: string) {
